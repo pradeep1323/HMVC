@@ -1,0 +1,144 @@
+<?php
+if (!defined('BASEPATH')) exit('No direct script access allowed');
+/**
+ * Name:    Common Method Model
+ * Author:  Pradeep
+ *           pradeepraj110197@gmail.com
+ *
+ * Requirements: PHP5 or above
+ *
+ * @package    CodeIgniter-Custom-query-Methods
+ * @author     Er.Pradeep
+ * @link       https://github.com/pradeep1323/HMVC/
+ * @filesource
+ */
+
+/**
+ * Class Cropper
+ */
+class Cropper
+{
+   protected $CI;
+
+   public function __construct()
+   {
+      $this->CI =& get_instance();
+      $this->CI->load->library(array('ion_auth', 'form_validation'));
+      $this->CI->load->helper('url');
+      $this->CI->load->library('upload');
+   }
+
+    /**
+     * @param $fileName
+     * @param $jpeg_quality
+     * @param $default_image
+     * @param $imgdata
+     * @param bool $bucket_name
+     * @return bool|string
+     */
+   function get_cropped_image($fileName,$jpeg_quality,$default_image,$imgdata,$bucket_name=false){
+      if(file_exists($_FILES[$fileName]['tmp_name']) || is_uploaded_file($_FILES[$fileName]['tmp_name']))
+      {
+         // print_r($_FILES);
+         $imgPath = './assets/images/cropper_img/';
+          if(!is_dir($imgPath)){
+              //Directory does not exist, so lets create it.
+              mkdir($imgPath, 0755, true);
+          }
+         $params = array(
+            'max_size'=> 10000000,
+            'file_name'=> time()."_upload.jpg",
+            'ext' => "gif|jpg|png|jpeg",
+            'upload_path'=> $imgPath,
+            'resize'=> false,
+            'rotate_angle' => 0
+         );
+
+         $filename = $this->_do_upload($fileName);
+         $oldfile = $filename;
+         /* $targ_w = 1200;
+          $targ_h = 630;
+          $jpeg_quality = 70;*/
+         $im = $imgPath.$oldfile;
+         $source_img = $imgPath.$oldfile;
+         $info = getimagesize($imgPath.$oldfile);
+         switch(strtolower($info['mime'])){ //determine uploaded image type
+            //Create new image from file
+            case 'image/png':
+               $image_resource =  imagecreatefrompng($source_img);
+               break;
+            case 'image/gif':
+               $image_resource =  imagecreatefromgif($source_img);
+               break;
+            case 'image/jpeg':
+               $image_resource = imagecreatefromjpeg($source_img);
+               break;
+            default:
+               $image_resource = false;
+         }
+
+         $dst_r = ImageCreateTrueColor($imgdata['target_width'], $imgdata['target_height']);
+         imagecopyresampled($dst_r,$image_resource,0,0,$imgdata['x_axis'],$imgdata['y_axis'],
+            $imgdata['target_width'],$imgdata['target_height'],$imgdata['width'],$imgdata['height']);
+         $dest =  time().'cropped.jpg';
+         imagejpeg($dst_r,$imgPath.$dest,$jpeg_quality);
+         imagedestroy($dst_r);
+         if (!empty($bucket_name)){
+            unlink($imgPath.$oldfile);
+            $source_file = $imgPath.'cropped.jpg';
+            $s3uploadedfile = $this->_s3_upload_images($dest,$bucket_name);
+         }else{
+            $s3uploadedfile = $dest;
+         }
+         return $image = $s3uploadedfile;
+      }else{
+         return $image = $default_image;
+      }
+   }
+
+    /**
+     * @param $image_u
+     * @param $bucket_name
+     * @return bool
+     */
+   function _s3_upload_images($image_u,$bucket_name){
+
+      $sample_file = FCPATH.'assets/images/cropper_img/'.$image_u;
+      //echo '<img src="'.base_url('assets/images/cropper_img/'.$image_u).'">';exit;
+      $file_url = $this->s3_upload->s3_upload_file($sample_file,$bucket_name);
+      // echo $file_url;exit;
+      if($file_url){
+         unlink($sample_file);
+         return $file_url;
+      }else{
+         return FALSE;
+      }
+   }
+
+    /**
+     * @param $file_name
+     * @return mixed
+     */
+   function _do_upload($file_name){
+      $config['upload_path']          = './assets/images/cropper_img/';
+      $config['allowed_types']        = 'gif|jpg|png|jpeg';
+      $config['max_size']             = 10000000;
+      $config['file_name']            = time()."_upload.jpg";
+
+
+      $this->CI->upload->initialize($config);
+      if ( ! $this->CI->upload->do_upload($file_name))
+      {
+         $error = array('error' => $this->CI->upload->display_errors());
+         print_r($error);
+      }
+      else
+      {
+         $data = array('upload_data' => $this->CI->upload->data());
+         return $data['upload_data']['file_name'];
+      }
+   }
+
+}
+
+// file Path /dev/application/libraries/Cropper.php
